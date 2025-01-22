@@ -1,0 +1,20 @@
+[build-system]
+requires = ['setuptools']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'bmstestbedc2f2'
+requires-python = '>=3.11'
+version = '0.0.0a'
+dependencies = [
+    'tqdm',
+    #'controllables-energyplus',
+    'numpy',
+    'pythermalcomfort',
+    'ray[rllib,tune]==2.38.0',
+    'torch',
+]
+
+[tool.setuptools.packages.find]
+where = ['packages']
+namespaces = true
