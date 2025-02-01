@@ -1,6 +1,5 @@
 from collections import deque
 from typing import Optional, TypedDict
-
 import numpy as _numpy_
 import pythermalcomfort as _pytc_
 
@@ -31,6 +30,7 @@ class ComfortFunction:
         )['pmv']    
         return (self._pmv_limit - _numpy_.abs(pmv)) / self._pmv_limit
 
+
 class ComfortElecSavingRewardFunction:
     def __init__(self):
         self._comfort_history, self._elec_history = deque(maxlen=2), deque(maxlen=2)
@@ -55,8 +55,8 @@ class ComfortElecSavingRewardFunction:
         })
 
         if office_occupancy != 0:
-            self._comfort_history.append(_numpy_.array(comfort))
-            self._elec_history.append(_numpy_.array(hvac_load))
+            self._comfort_history.append(_numpy_.float32(comfort))
+            self._elec_history.append(_numpy_.float32(hvac_load))
 
             if len(self._comfort_history) < 2 or len(self._elec_history) < 2:
                 return 0.
@@ -98,8 +98,8 @@ class ComfortElecSavingVectorRewardFunction:
         })
         reward = 0
         if office_occupancy != 0:  
-            self._comfort_history.append(_numpy_.array(comfort))
-            self._elec_history.append(_numpy_.array(hvac_load))
+            self._comfort_history.append(_numpy_.float32(comfort))
+            self._elec_history.append(_numpy_.float32(hvac_load))
 
             if len(self._comfort_history) == 2:
                 with _numpy_.errstate(divide='ignore', invalid='ignore'):
@@ -135,8 +135,66 @@ class ComfortElecSavingVectorRewardFunction:
         return reward
 
 
+class HeuristicComfortFunction:
+    class Inputs(TypedDict):
+        delta_temperature: float
+        delta_temperature_pref: float
+        tolerance_temperature_pref: Optional[float]
+
+    def __call__(self, inputs: Inputs) -> float:
+        tolerance_temperature_pref = (
+            inputs['tolerance_temperature_pref'] 
+            if inputs.get('tolerance_temperature_pref', None) is not None else 
+            2.
+        )
+
+        return (
+            (1 - _numpy_.exp(-(inputs['delta_temperature_pref'] / tolerance_temperature_pref)**2)) 
+                / _numpy_.exp(-(inputs['delta_temperature_pref'] / tolerance_temperature_pref)**2)
+            * (1 - _numpy_.exp(inputs['delta_temperature']**2)) 
+        )
+
+
+class HeuristicComfortElecSavingRewardFunction:
+    def __init__(self):
+        self._temperature_prev = None
+        self._hvac_load_prev = None
+        self._comfort_function = HeuristicComfortFunction()
+
+    class Inputs(TypedDict):
+        hvac_load: float
+        temperature: float
+        temperature_pref: float
+        comfort_bias: Optional[float]
+        tolerance_temperature_pref: Optional[float]
+
+    def __call__(self, inputs: Inputs) -> float:
+        comfort_bias = (
+            inputs.get('comfort_bias') 
+            if inputs.get('comfort_bias', None) is not None else 
+            .5
+        )
+
+        reward_load = -inputs['hvac_load']
+        reward_comfort = self._comfort_function({
+            'delta_temperature': 
+                (self._temperature_prev - inputs['temperature']) 
+                if self._temperature_prev is not None else 
+                0,
+            'delta_temperature_pref': inputs['temperature_pref'] - inputs['temperature'],
+            'tolerance_temperature_pref': inputs.get('tolerance_temperature_pref', None),
+        })
+
+        self._temperature_prev = _numpy_.float32(inputs['temperature'])
+        self._hvac_load_prev = _numpy_.float32(inputs['hvac_load'])
+
+        return comfort_bias * reward_comfort + (1 - comfort_bias) * reward_load
+
+
 __all__ = [
     'ComfortFunction',
     'ComfortElecSavingRewardFunction',
     'ComfortElecSavingVectorRewardFunction',
+    'HeuristicComfortFunction',
+    'HeuristicComfortElecSavingRewardFunction',
 ]
