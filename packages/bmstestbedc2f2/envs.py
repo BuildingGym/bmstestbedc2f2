@@ -1,9 +1,13 @@
+from .rewards import HeuristicComfortElecSavingRewardFunction
+from .systems import _TODO_ProtoBMSystem, _TODO_ManualBMSystem, _TODO_EnergyPlusBMSystem
+from controllables.core import BaseVariable
 import functools as _functools_
 from typing import Callable, Literal
 
 import numpy as _numpy_
 
 from controllables.core import TemporaryUnavailableError
+from controllables.core import ComputedVariable
 from controllables.core.tools.gymnasium import DiscreteSpace, BoxSpace, DictSpace, BaseAgent
 from controllables.core.tools.rllib import MultiAgentEnv, Env
 
@@ -39,10 +43,10 @@ class MultiAgentBuildingEnv(MultiAgentEnv):
         def __call__(self, agent: BaseAgent) -> float:
             try:
                 return self._base_fn({
-                    'hvac_load': agent.observation.value['load:hvac'], 
-                    'office_occupancy': agent.observation.value['occupancy'], 
-                    'temperature_drybulb': agent.observation.value['temperature:drybulb'], 
-                    'temperature_radiant': agent.observation.value['temperature:radiant'], 
+                    'hvac_load': agent.observation.value['load:hvac'],
+                    'office_occupancy': agent.observation.value['occupancy'],
+                    'temperature_drybulb': agent.observation.value['temperature:drybulb'],
+                    'temperature_radiant': agent.observation.value['temperature:radiant'],
                     'humidity': agent.observation.value['humidity'],
                 })
             except TemporaryUnavailableError:
@@ -66,7 +70,7 @@ class MultiAgentBuildingEnv(MultiAgentEnv):
                     dtype=_numpy_.float32,
                     shape=(),
                 ).bind(
-                    lambda agent, zone_id=zone_id: 
+                    lambda agent, zone_id=zone_id:
                     agent[(zone_id, 'temperature:drybulb')].cast(_numpy_.array)
                 ),
                 'temperature:radiant': BoxSpace(
@@ -74,7 +78,7 @@ class MultiAgentBuildingEnv(MultiAgentEnv):
                     dtype=_numpy_.float32,
                     shape=(),
                 ).bind(
-                    lambda agent, zone_id=zone_id: 
+                    lambda agent, zone_id=zone_id:
                     agent[(zone_id, 'temperature:radiant')].cast(_numpy_.array)
                 ),
                 'humidity': BoxSpace(
@@ -119,10 +123,11 @@ class MultiAgentBuildingEnv(MultiAgentEnv):
             case 'manual':
                 self._bms_system_factory = lambda: ManualBMSystem().start()
             case 'energyplus':
-                self._bms_system_factory = lambda: EnergyPlusBMSystem(repeat=True).start()
+                self._bms_system_factory = lambda: EnergyPlusBMSystem(
+                    repeat=True).start()
             case x:
                 self._bms_system_factory = x
-                
+
         super().__init__({
             **self.__class__.config,
             **config,
@@ -154,22 +159,18 @@ class MultiAgentBuildingEnv(MultiAgentEnv):
                     )
                     for policy_id, agent_config in cls.config['agents'].items()
                 },
-                policy_mapping_fn=lambda agent_id, *args, **kwargs: str(agent_id),
+                policy_mapping_fn=lambda agent_id, *
+                args, **kwargs: str(agent_id),
             )
             .update_from_dict({**config, **config_kwds})
         )
-    
-
-from controllables.core import BaseVariable
-
-from .systems import _TODO_ProtoBMSystem, _TODO_ManualBMSystem, _TODO_EnergyPlusBMSystem
-from .rewards import HeuristicComfortElecSavingRewardFunction
 
 
+# TODO
 class DeltaVariable(BaseVariable):
     def __init__(
-        self, 
-        variable: BaseVariable, 
+        self,
+        variable: BaseVariable,
     ):
         self._variable = variable
         self._prev_value = None
@@ -178,13 +179,13 @@ class DeltaVariable(BaseVariable):
     def value(self):
         value = self._variable.value
         delta = (
-            (value - self._prev_value) 
-            if self._prev_value is not None else 
+            (value - self._prev_value)
+            if self._prev_value is not None else
             0
         )
         self._prev_value = value
         return delta
-    
+
 
 class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
     config: MultiAgentEnv.Config = {
@@ -199,9 +200,13 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
         def __call__(self, agent: BaseAgent) -> float:
             try:
                 return self._base_fn({
-                    'temperature': agent[(self._zone_id, 'temperature')].value,
+                    # 'office_occupancy': agent[(self._zone_id, 'occupancy')].value,
+                    # 'temperature': agent[(self._zone_id, 'temperature')].value,
                     'temperature_pref': agent[(self._zone_id, 'temperature:userpref')].value,
-                    'hvac_load': agent[(self._zone_id, 'load:hvac')].value,
+                    # 'hvac_load': agent[(self._zone_id, 'load:hvac')].value,
+                    'ahu_load': agent.observation.value['load:ahu'],
+                    'office_occupancy': agent.observation.value['occupancy'],
+                    'temperature': agent.observation.value['temperature'],
                 })
             except TemporaryUnavailableError:
                 return 0.
@@ -210,7 +215,7 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
         config['agents'][zone_id] = {
             'action_space': DictSpace({
                 'temperature:thermostat': BoxSpace(
-                    low=20., high=30.,
+                    low=22., high=22.1,
                     dtype=_numpy_.float32,
                     shape=(),
                 ).bind(
@@ -221,54 +226,105 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
             'observation_space': DictSpace({
                 # TODO
                 'energy': BoxSpace(
-                    low=-1, high=+1,
+                    low=-_numpy_.inf, high=_numpy_.inf,
                     dtype=_numpy_.float32,
                     shape=(),
                 ).bind(
                     # TODO NOTE no vec norm here because the rllib does not support it!!!
-                    lambda agent, zone_id=zone_id: 
-                    (
-                        (agent[(zone_id, 'temperature:thermostat')] - agent[(zone_id, 'temperature')])
-                        #/ (agent[(zone_id, 'temperature')])
-                    )
-                    .cast(_numpy_.array)
+                    lambda agent, zone_id=zone_id:
+                        ComputedVariable(
+                            lambda temp_t, temp:
+                                _numpy_.nan_to_num(
+                                    _numpy_.float32(
+                                        temp_t.value - temp.value) / temp.value
+                                ),
+                            temp_t=agent[(zone_id, 'temperature:thermostat')],
+                            temp=agent[(zone_id, 'temperature')],
+                        )
                 ),
                 'comfort': BoxSpace(
-                    low=-1, high=+1,
+                    low=-_numpy_.inf, high=_numpy_.inf,
                     dtype=_numpy_.float32,
                     shape=(),
                 ).bind(
-                    lambda agent, zone_id=zone_id: 
-                    (
-                        (agent[(zone_id, 'temperature:userpref')] - agent[(zone_id, 'temperature')])
-                        #/ (agent[(zone_id, 'temperature')])
-                    )
-                    .cast(_numpy_.array)
+                    lambda agent, zone_id=zone_id:
+                        ComputedVariable(
+                            lambda temp_pref, temp:
+                                _numpy_.nan_to_num(
+                                    _numpy_.float32(
+                                        temp_pref.value - temp.value) / temp.value
+                                ),
+                            temp_pref=agent[(zone_id, 'temperature:userpref')],
+                            temp=agent[(zone_id, 'temperature')],
+                        )
                 ),
                 # TODO !!!!
                 # 'occupancy': BoxSpace(
+                #     low=-_numpy_.inf, high=_numpy_.inf,
+                #     dtype=_numpy_.float32,
+                #     shape=(),
+                # ).bind(
+                #     lambda agent, zone_id=zone_id:
+                #         ComputedVariable(
+                #             lambda temp_trend, temp:
+                #                 _numpy_.nan_to_num(
+                #                     _numpy_.float32(
+                #                         temp_trend.value) / temp.value
+                #                 ),
+                #                 temp_trend=agent[(
+                #                     zone_id, 'trend:temperature')],
+                #                 temp=agent[(zone_id, 'temperature')],
+                #         )
+                # ),
+                'load:ahu': BoxSpace(
+                    low=-_numpy_.inf, high=_numpy_.inf,
+                    dtype=_numpy_.float32,
+                    shape=(),
+                ).bind(
+                    lambda agent, zone_id=zone_id:
+                        ComputedVariable(
+                            lambda load:
+                                _numpy_.nan_to_num(load.value),
+                            load=agent[(zone_id, 'load:ahu')],
+                        )
+                ),
+                # 'trend:power': BoxSpace(
                 #     low=-1, high=+1,
                 #     dtype=_numpy_.float32,
                 #     shape=(),
                 # ).bind(
                 #     lambda agent, zone_id=zone_id:
-                #     agent[(zone_id, 'temperature')]
-                #     .cast(_numpy_.array)
+                #         ComputedVariable(
+                #             lambda power_trend, power:
+                #                 _numpy_.clip(
+                #                     _numpy_.nan_to_num(
+                #                         _numpy_.float32(power_trend.value) / (power.value+1e-6),
+                #                     ),
+                #                     -1, +1,
+                #                 ),
+                #             power_trend=agent[(zone_id, 'trend:load:hvac')],
+                #             power=agent[(zone_id, 'load:hvac')]
+                #         )
                 # ),
-                'power': BoxSpace(
-                    low=-1, high=+1,
+                'temperature': BoxSpace(
+                    low=-_numpy_.inf, high=+_numpy_.inf,
                     dtype=_numpy_.float32,
                     shape=(),
                 ).bind(
                     lambda agent, zone_id=zone_id:
-                    agent[(zone_id, 'load:hvac')]
-                    .cast(_numpy_.array)
+                    agent[(zone_id, 'temperature')].cast(_numpy_.array)
                 ),
-                # 'trend:power': ...,
+                'occupancy': BoxSpace(
+                    low=-_numpy_.inf, high=+_numpy_.inf,
+                    dtype=_numpy_.float32,
+                    shape=(),
+                ).bind(
+                    lambda agent, zone_id=zone_id:
+                    agent[(zone_id, 'occupancy')].cast(_numpy_.array)
+                ),
             }),
             'reward': RoomAgentRewardFunction(zone_id=zone_id),
         }
-
 
     def __init__(self, config: dict = dict()):
         self._bms_system_factory: Callable[[], ProtoBMSystem]
@@ -276,10 +332,11 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
             case 'manual':
                 self._bms_system_factory = lambda: _TODO_ManualBMSystem().start()
             case 'energyplus':
-                self._bms_system_factory = lambda: _TODO_EnergyPlusBMSystem(repeat=True).start()
+                self._bms_system_factory = lambda: _TODO_EnergyPlusBMSystem(
+                    repeat=True).start()
             case x:
                 self._bms_system_factory = x
-                
+
         super().__init__({
             **self.__class__.config,
             **config,
@@ -291,7 +348,7 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
 
     def run(self):
         self.attach(self.system)
-        self.schedule_episode(errors='raise')
+        self.schedule_episode(errors='warn')
         self.system.wait()
 
     @classmethod
@@ -311,7 +368,8 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
                     )
                     for policy_id, agent_config in cls.config['agents'].items()
                 },
-                policy_mapping_fn=lambda agent_id, *args, **kwargs: str(agent_id),
+                policy_mapping_fn=lambda agent_id, *
+                args, **kwargs: str(agent_id),
             )
             .update_from_dict({**config, **config_kwds})
         )

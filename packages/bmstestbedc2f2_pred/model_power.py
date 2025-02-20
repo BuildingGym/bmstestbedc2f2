@@ -17,18 +17,17 @@ class PowerLSTMModule(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.layer_norm(x)
         x, _ = self.lstm(x)
+        x = x[:, -1, :]
         x = self.fc(x)
         return x
 
 
-class PowerLSTMModel:
+class PowerModel:
     class Input(xarray.DataArray):
         __slots__ = ()
 
         _dims_ = ['Batch', 'Time', 'Feature']
         _coords_ = {
-            'Batch': -1,
-            'Time': -1,
             'Feature': ['power'],
         }
     
@@ -42,10 +41,8 @@ class PowerLSTMModel:
     class Output(xarray.DataArray):
         __slots__ = ()
 
-        _dims_ = ['Batch', 'Time', 'Feature']
+        _dims_ = ['Batch', 'Feature']
         _coords_ = {
-            'Batch': -1, 
-            'Time': -1,
             'Feature': ['power'],
         }
     
@@ -69,7 +66,7 @@ class PowerLSTMModel:
         self.criterion = torch.nn.functional.mse_loss
 
     class TrainResult(typing.TypedDict):
-        output_pred: 'PowerLSTMModel.Output'
+        output_pred: 'PowerModel.Output'
         loss: float
 
     def train(self, input: Input, output: Output) -> TrainResult:
@@ -90,3 +87,9 @@ class PowerLSTMModel:
         with torch.no_grad():
             prediction = self.module(torch.tensor(input.values, dtype=torch.float32))
         return self.Output(prediction)
+    
+    def save(self, file_like: torch.serialization.FILE_LIKE):
+        torch.save(self.module.state_dict(), file_like)
+    
+    def restore(self, file_like: torch.serialization.FILE_LIKE):
+        self.module.load_state_dict(torch.load(file_like, weights_only=True))

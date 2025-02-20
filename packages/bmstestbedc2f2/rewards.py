@@ -158,13 +158,14 @@ class HeuristicComfortFunction:
 class HeuristicComfortElecSavingRewardFunction:
     def __init__(self):
         self._temperature_prev = None
-        self._hvac_load_prev = None
+        self._ahu_load_prev = None
         self._comfort_function = HeuristicComfortFunction()
 
     class Inputs(TypedDict):
-        hvac_load: float
+        ahu_load: float
         temperature: float
         temperature_pref: float
+        office_occupancy: float
         comfort_bias: Optional[float]
         tolerance_temperature_pref: Optional[float]
 
@@ -175,7 +176,7 @@ class HeuristicComfortElecSavingRewardFunction:
             .5
         )
 
-        reward_load = -inputs['hvac_load']
+        reward_load = -inputs['ahu_load']
         reward_comfort = self._comfort_function({
             'delta_temperature': 
                 (self._temperature_prev - inputs['temperature']) 
@@ -186,9 +187,15 @@ class HeuristicComfortElecSavingRewardFunction:
         })
 
         self._temperature_prev = _numpy_.float32(inputs['temperature'])
-        self._hvac_load_prev = _numpy_.float32(inputs['hvac_load'])
+        self._ahu_load_prev = _numpy_.float32(inputs['ahu_load'])
+        
 
-        return comfort_bias * reward_comfort + (1 - comfort_bias) * reward_load
+        reward = 0.
+        if inputs['office_occupancy'] != 0:
+            reward = comfort_bias * reward_comfort + (1 - comfort_bias) * reward_load
+        # TODO 
+        reward = _numpy_.clip(reward, -1, 1)
+        return reward
 
 
 __all__ = [
