@@ -1,5 +1,5 @@
 from .rewards import HeuristicComfortElecSavingRewardFunction
-from .systems import _TODO_ProtoBMSystem, _TODO_ManualBMSystem, _TODO_EnergyPlusBMSystem
+from .systems import _TODO_ProtoBMSystem, _TODO_ManualBMSystem, _TODO_EnergyPlusBMSystem, _TODO_NeuralBMSystem, _TODO_NeuralBMSystemV2
 from controllables.core import BaseVariable
 import functools as _functools_
 from typing import Callable, Literal
@@ -214,8 +214,13 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
     for zone_id in _TODO_ProtoBMSystem.zone_ids:
         config['agents'][zone_id] = {
             'action_space': DictSpace({
+                # 'temperature:thermostat': DiscreteSpace(
+                #     n=10, start=20
+                # ).bind(
+                #     (zone_id, 'temperature:thermostat')
+                # ),
                 'temperature:thermostat': BoxSpace(
-                    low=22., high=22.1,
+                    low=20., high=30.,
                     dtype=_numpy_.float32,
                     shape=(),
                 ).bind(
@@ -285,7 +290,7 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
                         ComputedVariable(
                             lambda load:
                                 _numpy_.nan_to_num(load.value),
-                            load=agent[(zone_id, 'load:ahu')],
+                            load=agent['load:ahu'],
                         )
                 ),
                 # 'trend:power': BoxSpace(
@@ -327,29 +332,79 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
         }
 
     def __init__(self, config: dict = dict()):
-        self._bms_system_factory: Callable[[], ProtoBMSystem]
-        match config.get('bms_system', 'energyplus'):
-            case 'manual':
-                self._bms_system_factory = lambda: _TODO_ManualBMSystem().start()
-            case 'energyplus':
-                self._bms_system_factory = lambda: _TODO_EnergyPlusBMSystem(
-                    repeat=True).start()
-            case x:
-                self._bms_system_factory = x
+        self._bms_system = config.get('bms_system', 'energyplus')
+
+        # self._bms_system_factory: Callable[[], ProtoBMSystem]
+        # match config.get('bms_system', 'energyplus'):
+        #     case 'manual':
+        #         self._bms_system_factory = lambda: _TODO_ManualBMSystem()
+        #     case 'energyplus':
+        #         self._bms_system_factory = lambda: _TODO_EnergyPlusBMSystem(
+        #             repeat=True).start()
+        #     case 'neural':
+        #         # TODO
+        #         self._bms_system_factory = lambda: _TODO_NeuralBMSystem().start()
+        #     case 'neural_v2':
+        #         def neural_bms_system_factory():
+        #             system = _TODO_NeuralBMSystemV2()
+        #             while True:
+        #                 system.start()
+        #                 for _ in range(100):
+        #                     system.step()
+        #                 system.stop()
+
+        #                 # TODO
+        #                 print('TODO end')
+        #                 for key, value in system.items():
+        #                     print(f"{key}: {value.value}")
+
+        #         self._bms_system_factory = neural_bms_system_factory
+        #     case x:
+        #         self._bms_system_factory = x
 
         super().__init__({
             **self.__class__.config,
             **config,
         })
 
-    @_functools_.cached_property
-    def system(self):
-        return self._bms_system_factory()
+    # @_functools_.cached_property
+    # def system(self):
+    #     return self._bms_system_factory()
 
     def run(self):
-        self.attach(self.system)
-        self.schedule_episode(errors='warn')
-        self.system.wait()
+        match self._bms_system:
+            case 'manual':
+                self.attach(_TODO_ManualBMSystem())
+                self.schedule_episode(errors='warn')
+                self.system.wait()
+            case 'energyplus':
+                self.attach(_TODO_EnergyPlusBMSystem(
+                    repeat=True
+                ))
+                self.schedule_episode(errors='warn')
+                self.system.start()
+                self.system.wait()
+            case 'neural':
+                raise NotImplementedError
+            case 'neural_v2':
+                # TODO
+                self.attach(_TODO_NeuralBMSystemV2())
+                self.schedule_episode(errors='warn')
+                self.system.restore()
+                while True:
+                    self.system.start()
+                    for _ in range(1_000):
+                        self.system.step()
+                    self.system.stop()
+                    # TODO
+                    # print('TODO end')
+                    # for key, value in self.system.items():
+                    #     print(f"{key}: {value.value}")
+            case run_func:
+                run_func(self)
+                # self.attach(factory_func())
+                # self.schedule_episode(errors='warn')
+                # self.system.wait()
 
     @classmethod
     def get_algo_config(cls, base_config: AlgorithmConfig, config: dict = dict(), **config_kwds):
@@ -368,8 +423,7 @@ class _TODO_MultiAgentBuildingEnv(MultiAgentEnv):
                     )
                     for policy_id, agent_config in cls.config['agents'].items()
                 },
-                policy_mapping_fn=lambda agent_id, *
-                args, **kwargs: str(agent_id),
+                policy_mapping_fn=lambda agent_id, *args, **kwargs: str(agent_id),
             )
             .update_from_dict({**config, **config_kwds})
         )

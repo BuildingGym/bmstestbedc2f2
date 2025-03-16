@@ -1,8 +1,8 @@
 # bmstestbedc2f2
 
 ## Usage
-- `packages/bmstestbedc2f2_notebooks/run_eplus.ipynb`: train the model using the EnergyPlus simulation and save the model to disk; this overrides previously saved model.
-- `packages/bmstestbedc2f2_notebooks/run_manual.ipynb`: load the model from disk and train the trained EnergyPlus model through real-world interactions; this updates the saved model.
+- `packages/bmstestbedc2f2_notebooks/run_ppo_eplus-TODO.ipynb`: (TODO) train the model using the EnergyPlus simulation and save the model to disk; this overrides previously saved model.
+- `packages/bmstestbedc2f2_notebooks/run_ppo_manual.ipynb`: load the model from disk and train the trained EnergyPlus model through real-world interactions; this updates the saved model.
 
 ## Setup
 ```sh
